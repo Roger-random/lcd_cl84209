@@ -33,10 +33,20 @@ SOFTWARE.
 #define CONFIG_SEQUENCE_LENGTH 8
 #define LINES 3
 #define LINE_SEQUENCE_LENGTH 3
+#define CHAR_POSITIONS 15
 #define SEGMENTS_BYTE_COUNT 16
 
+// Comment out this line out to turn off LED heartbeat
+#define LED_HEARTBEAT
+
+// Only one of the following should be active.
+//#define CHARACTER_SET
+#define ALL_ON
+
+#ifdef CHARACTER_SET
 // Starting point for the next subset of characters to be printed.
 uint8_t characterSetStart;
+#endif // CHARACTER_SET
 
 // The CL84209 handset sends a particular sequence of commands once a second.
 // (The very first time after power-up it skips the final 0x02, but it doesn't
@@ -87,6 +97,22 @@ void writeDigitAsHex(uint8_t digit)
   }
 }
 
+// Sets one bit in the segments array, indexing from least significant bit.
+void setBit(uint8_t index, uint8_t* segments)
+{
+  uint8_t segmentByte = index/8;
+  uint8_t segmentBit = index%8;
+  uint8_t bitFlag = 0x01 << segmentBit;
+
+  if (segmentByte > SEGMENTS_BYTE_COUNT)
+  {
+    Serial.print("ERROR: segmentSetBit() index requires more than SEGMENTS_BYTE_COUNT bytes.");
+    return;
+  }
+  segments[segmentByte] |= bitFlag;
+}
+
+#ifdef CHARACTER_SET
 // Write 16 characters from the character set, eight characters per line.
 // 'setStart' selects one of 16 starting points.
 void writeCharacterSetLines(uint8_t setStart)
@@ -120,21 +146,6 @@ void writeCharacterSetLines(uint8_t setStart)
     Wire.write(0x20);
     Wire.endTransmission();
   }
-}
-
-// Sets one bit in the segments array, indexing from least significant bit.
-void setBit(uint8_t index, uint8_t* segments)
-{
-  uint8_t segmentByte = index/8;
-  uint8_t segmentBit = index%8;
-  uint8_t bitFlag = 0x01 << segmentBit;
-
-  if (segmentByte > SEGMENTS_BYTE_COUNT)
-  {
-    Serial.print("ERROR: segmentSetBit() index requires more than SEGMENTS_BYTE_COUNT bytes.");
-    return;
-  }
-  segments[segmentByte] |= bitFlag;
 }
 
 // Cycles segments on/off depending on their position and
@@ -171,18 +182,50 @@ void writeSegmentsPattern()
   }
   Wire.endTransmission();
 }
+#endif // CHARACTER_SET
 
 void setup() {
-  pinMode(2, OUTPUT);
   Serial.begin(115200);
   Wire.begin();
 
+#ifdef ALL_ON
+  Serial.println("CL84209 LCD all on");
+#endif // ALL_ON
+
+#ifdef CHARACTER_SET
   Serial.println("CL84209 LCD character set");
   characterSetStart = 0;
+#endif // CHARACTER_SET
+
+#ifdef LED_HEARTBEAT
+  pinMode(2, OUTPUT);
+#endif // LED_HEARTBEAT
 }
 
 void loop() {
   writeConfig();
+
+#ifdef ALL_ON
+  for (uint8_t line = 0; line < 2; line++)
+  {
+    Wire.beginTransmission(0x3E);
+    writeLineStart(line);
+    for(uint8_t i = 0; i < CHAR_POSITIONS; i++)
+    {
+      Wire.write(0x7F);
+    }
+    Wire.endTransmission();
+  }
+  Wire.beginTransmission(0x3E);
+  writeLineStart(2);
+  for(uint8_t i = 0; i < SEGMENTS_BYTE_COUNT; i++)
+  {
+    Wire.write(0xFF);
+  }
+  Wire.endTransmission();
+#endif // ALL_ON
+
+#ifdef CHARACTER_SET
   writeCharacterSetLines(characterSetStart);
   writeSegmentsPattern();
 
@@ -190,7 +233,9 @@ void loop() {
   {
     characterSetStart = 0;
   }
+#endif
 
+#ifdef LED_HEARTBEAT
   // LED heartbeat
   digitalWrite(2, LOW);
   delay(10);
@@ -200,4 +245,5 @@ void loop() {
   delay(10);
   digitalWrite(2, HIGH);
   delay(1000);
+#endif // LED_HEARTBEAT
 }
