@@ -159,6 +159,7 @@ void writeSegmentsPattern()
   for(uint8_t i = 0; i < SEGMENTS_BYTE_COUNT; i++)
   {
     Serial.print(segments[i],BIN);
+    Serial.print(" ");
   }
   Serial.println();
 
