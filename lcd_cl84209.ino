@@ -37,11 +37,20 @@ SOFTWARE.
 #define SEGMENTS_BYTE_COUNT 16
 
 // Comment out this line out to turn off LED heartbeat
-#define LED_HEARTBEAT
+//#define LED_HEARTBEAT
 
 // Only one of the following should be active.
 //#define CHARACTER_SET
-#define ALL_ON
+//#define ALL_ON
+#define SEGMENT_KNOB
+
+#ifdef SEGMENT_KNOB
+#include <Encoder.h>
+Encoder segmentKnob(12,14); // GPIO12 = D6 on a Wemos D1 Mini, GPIO14 = D5
+long segmentKnobPosition;
+long segmentKnobOffset = 0;
+long segmentNumber=0;
+#endif
 
 #ifdef CHARACTER_SET
 // Starting point for the next subset of characters to be printed.
@@ -197,6 +206,14 @@ void setup() {
   characterSetStart = 0;
 #endif // CHARACTER_SET
 
+#ifdef SEGMENT_KNOB
+  Serial.println("CL84209 LCD segment selection by knob");
+  segmentKnobPosition = segmentKnob.read()/4;
+  Serial.print("Segment knob start: ");
+  Serial.println(segmentKnobPosition);
+  segmentKnobOffset = -segmentKnobPosition;
+#endif
+
 #ifdef LED_HEARTBEAT
   pinMode(2, OUTPUT);
 #endif // LED_HEARTBEAT
@@ -234,6 +251,118 @@ void loop() {
     characterSetStart = 0;
   }
 #endif
+
+#ifdef SEGMENT_KNOB
+  uint8_t segments[SEGMENTS_BYTE_COUNT]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
+  long newPos = segmentKnob.read()/4;
+  if (newPos != segmentKnobPosition)
+  {
+    Serial.print("Segment knob: ");
+    Serial.println(newPos);
+    segmentKnobPosition = newPos;
+
+    if (segmentKnobPosition + segmentKnobOffset > 127)
+    {
+      segmentKnobOffset = 127-segmentKnobPosition;
+      Serial.print("Segment max 127 reached, offset adjusted to ");
+      Serial.println(segmentKnobOffset);
+    }
+    else if (segmentKnobPosition + segmentKnobOffset < 0)
+    {
+      segmentKnobOffset = -segmentKnobPosition;
+      Serial.print("Segment min 0 reached, offset adjusted to ");
+      Serial.println(segmentKnobOffset);
+    }
+    segmentNumber = segmentKnobOffset+segmentKnobPosition;
+  }
+
+  setBit(segmentNumber, segments);
+
+  for (uint8_t line = 0; line < 2; line++)
+  {
+    bool wroteNonZero = false;
+
+    // Write out segment data, most of which will be zero so
+    // represented by '0'. One byte will be nonzero, write as hex.
+    Wire.beginTransmission(0x3E);
+    writeLineStart(line);
+    for(uint8_t i = 0; i < 8; i++)
+    {
+      uint8_t segmentDataByte = segments[i+(line*8)];
+      if (0 == segmentDataByte)
+      {
+        Wire.write(0x30); // 0
+      }
+      else
+      {
+        Wire.write(0x28); // (
+        writeDigitAsHex(segmentDataByte>>4);
+        writeDigitAsHex(segmentDataByte&0x0F);
+        Wire.write(0x29); // )
+        wroteNonZero = true;
+      }
+    }
+
+    // If this entire line was zero, we need three spaces of padding.
+    if(!wroteNonZero)
+    {
+      Wire.write(0x20);  // space
+      Wire.write(0x20);  // space
+      Wire.write(0x20);  // space
+    }
+
+    if (0==line)
+    {
+      // Line 0: write segment number as hexadecimal
+      Wire.write(0x20); // space
+      Wire.write(0x78); // x
+      writeDigitAsHex(segmentNumber>>4);
+      writeDigitAsHex(segmentNumber&0x0F);
+    }
+    else
+    {
+      // Line 1: write segment number as decimal
+      Wire.write(0x20); // space
+      if (segmentNumber >= 100)
+      {
+        Wire.write(0x30 + (segmentNumber/100));
+      }
+      else
+      {
+        Wire.write(0x20); // space
+      }
+
+      if (segmentNumber >= 10)
+      {
+        Wire.write(0x30 + ((segmentNumber%100)/10));
+      }
+      else
+      {
+        Wire.write(0x20); // space
+      }
+      if (segmentNumber >= 1)
+      {
+        Wire.write(0x30 + (segmentNumber%10));
+      }
+      else
+      {
+        Wire.write(0x30); // 0
+      }
+    }
+
+    Wire.endTransmission();
+  }
+
+  // Write out segment control data
+  Wire.beginTransmission(0x3E);
+  writeLineStart(2);
+  for(uint8_t i = 0; i < SEGMENTS_BYTE_COUNT; i++)
+  {
+    Wire.write(segments[i]);
+  }
+  Wire.endTransmission();
+#endif // SEGMENT_KNOB
 
 #ifdef LED_HEARTBEAT
   // LED heartbeat
