@@ -36,6 +36,9 @@ SOFTWARE.
 #define CHAR_POSITIONS 15
 #define SEGMENTS_BYTE_COUNT 16
 
+// GPIO2 = D4 and also built-in LED on Wemos D1 Mini
+#define LED_PIN 2
+
 // GPIO13 = D7 on a Wemos D1 Mini
 #define KNOB_BUTTON_PIN 13
 
@@ -44,11 +47,11 @@ unsigned long knob_button_wait = 500;
 // Wait until this time before acknowledging button down state
 unsigned long knob_button_next;
 
+// Button down toggles display mode
 typedef enum display_mode {
   character_set = 0,
   all_on,
-  segment_knob,
-  display_mode_max
+  segment_knob
 } display_mode;
 
 display_mode current_mode = character_set;
@@ -196,19 +199,9 @@ void writeSegmentsPattern()
   Wire.endTransmission();
 }
 
-void setup() {
-  pinMode(KNOB_BUTTON_PIN, INPUT);
-  knob_button_next = millis();
-
-  segmentKnobPosition = segmentKnob.read()/4;
-  segmentKnobOffset = -segmentKnobPosition;
-
-  pinMode(2, OUTPUT);
-
-  Serial.begin(115200);
-  Wire.begin();
-}
-
+// Check for button down and cycle to the next mode if so. Only responds once
+// every knob_button_wait milliseconds to handle both debouncing and also held
+// down button will continue cycling every knob_button_wait.
 void checkButton()
 {
   if (0 == digitalRead(KNOB_BUTTON_PIN) &&
@@ -238,17 +231,33 @@ void checkButton()
   }
 }
 
+// Pause for a bit of LED heartbeat because either we have time to kill or
+// screen is static and we want to show we are not frozen.
 void led_heartbeat()
 {
   // LED heartbeat
-  digitalWrite(2, LOW);
+  digitalWrite(LED_PIN, LOW);
   delay(10);
-  digitalWrite(2, HIGH);
+  digitalWrite(LED_PIN, HIGH);
   delay(100);
-  digitalWrite(2, LOW);
+  digitalWrite(LED_PIN, LOW);
   delay(10);
-  digitalWrite(2, HIGH);
+  digitalWrite(LED_PIN, HIGH);
   delay(1000);
+}
+
+// Set up knob button. (Knob quadrature encoder was done in Encoder() constructor)
+void setup() {
+  pinMode(KNOB_BUTTON_PIN, INPUT);
+  knob_button_next = millis();
+
+  segmentKnobPosition = segmentKnob.read()/4;
+  segmentKnobOffset = -segmentKnobPosition;
+
+  pinMode(LED_PIN, OUTPUT);
+
+  Serial.begin(115200);
+  Wire.begin();
 }
 
 void loop() {
@@ -293,21 +302,19 @@ void loop() {
     case segment_knob:
       if (newPos != segmentKnobPosition)
       {
-        Serial.print("Segment knob: ");
-        Serial.println(newPos);
         segmentKnobPosition = newPos;
 
         if (segmentKnobPosition + segmentKnobOffset > 127)
         {
+          // Segment max reached but knob kept moving up. Adjust offset so
+          // the first turn back will immediately start moving down.
           segmentKnobOffset = 127-segmentKnobPosition;
-          Serial.print("Segment max 127 reached, offset adjusted to ");
-          Serial.println(segmentKnobOffset);
         }
         else if (segmentKnobPosition + segmentKnobOffset < 0)
         {
+          // Segment min reached but knob kept moving down. Adjust offset so
+          // the first turn back will immediately start moving up.
           segmentKnobOffset = -segmentKnobPosition;
-          Serial.print("Segment min 0 reached, offset adjusted to ");
-          Serial.println(segmentKnobOffset);
         }
         segmentNumber = segmentKnobOffset+segmentKnobPosition;
       }
