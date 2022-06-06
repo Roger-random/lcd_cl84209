@@ -56,6 +56,10 @@ typedef enum display_mode {
 
 display_mode current_mode = character_set;
 
+// Handset LCD is one space offset from base station LCD.
+// Toggle this every time we cycle back through beginning of display_mode.
+bool is_handset;
+
 #include <Encoder.h>
 Encoder segmentKnob(12,14); // GPIO12 = D6 on a Wemos D1 Mini, GPIO14 = D5
 long segmentKnobPosition;
@@ -143,6 +147,12 @@ void writeCharacterSetLines(uint8_t setStart)
     Wire.beginTransmission(0x3E);
     writeLineStart(line);
 
+    // If in handset mode, print an extra space.
+    if (is_handset)
+    {
+      Wire.write(0x20); // <Space>
+    }
+
     // When dumping out the character set, we prefix each line with a hexadecimal
     // value of that line's starting character. If the starting character is 0xA0,
     // this will send " 0xA0 " to I2C.
@@ -221,7 +231,7 @@ void checkButton()
       case segment_knob:
         Serial.println("Switching from segment knob mode to character set mode.");
         current_mode = character_set;
-        characterSetStart = 0;
+        is_handset = !is_handset;
         break;
       default:
         Serial.println("Oh no, fell out of switch()! Reverting to character set mode.");
@@ -248,6 +258,8 @@ void led_heartbeat()
 
 // Set up knob button. (Knob quadrature encoder was done in Encoder() constructor)
 void setup() {
+  is_handset = false;
+
   pinMode(KNOB_BUTTON_PIN, INPUT);
   knob_button_next = millis();
 
@@ -284,6 +296,13 @@ void loop() {
       {
         Wire.beginTransmission(0x3E);
         writeLineStart(line);
+
+        // If in handset mode, print an extra space.
+        if (is_handset)
+        {
+          Wire.write(0x20); // <Space>
+        }
+
         for(uint8_t i = 0; i < CHAR_POSITIONS; i++)
         {
           Wire.write(0x7F);
@@ -329,6 +348,13 @@ void loop() {
         // represented by '0'. One byte will be nonzero, write as hex.
         Wire.beginTransmission(0x3E);
         writeLineStart(line);
+
+        // If in handset mode, print an extra space.
+        if (is_handset)
+        {
+          Wire.write(0x20); // <Space>
+        }
+
         for(uint8_t i = 0; i < 8; i++)
         {
           uint8_t segmentDataByte = segments[i+(line*8)];
